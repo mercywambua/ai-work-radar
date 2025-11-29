@@ -5,7 +5,7 @@ const { Server } = require("socket.io");
 const sqlite3 = require("sqlite3").verbose();
 
 const app = express();
-app.use(cors()); // Allow frontend to talk to us
+app.use(cors()); 
 app.use(express.json());
 
 // Database Setup
@@ -14,7 +14,7 @@ const db = new sqlite3.Database("./aiRadar.db", (err) => {
   console.log("Connected to DB.");
 });
 
-// Create Table if missing
+// Create Table
 db.run(`CREATE TABLE IF NOT EXISTS tasks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT,
@@ -22,20 +22,17 @@ db.run(`CREATE TABLE IF NOT EXISTS tasks (
   accuracy INTEGER
 )`);
 
-// Socket.io Setup
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: "*" }
-});
+const io = new Server(server, { cors: { origin: "*" } });
 
-// --- API ROUTES ---
+// --- THE FIX IS HERE ---
+// We removed the code that was looking for "index.html"
+// This keeps the backend strictly as an API.
 
-// Root URL: Just a simple message (No longer tries to load index.html)
 app.get("/", (req, res) => {
-  res.send("Backend is running! Access the frontend via your Static Site URL.");
+  res.send("Backend is Live! (API Only)");
 });
 
-// Get all tasks
 app.get("/tasks", (req, res) => {
   db.all("SELECT * FROM tasks", [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -43,7 +40,6 @@ app.get("/tasks", (req, res) => {
   });
 });
 
-// Add a task
 app.post("/tasks", (req, res) => {
   const { name, status, accuracy } = req.body;
   db.run("INSERT INTO tasks (name, status, accuracy) VALUES (?, ?, ?)", [name, status, accuracy], function(err) {
@@ -53,7 +49,6 @@ app.post("/tasks", (req, res) => {
   });
 });
 
-// Delete a task
 app.delete("/tasks/:id", (req, res) => {
   const id = req.params.id;
   db.run("DELETE FROM tasks WHERE id = ?", id, function(err) {
@@ -63,6 +58,5 @@ app.delete("/tasks/:id", (req, res) => {
   });
 });
 
-// Start Server
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { io } from "socket.io-client";
-import { PieChart, Pie, Cell, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid, Legend } from "recharts";
+import { PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
 
-const socket = io();
+// CONNECT TO THE CLOUD BACKEND
+const API_URL = "https://ai-work-radar.onrender.com";
+const socket = io(API_URL);
 
 function App() {
   const [tasks, setTasks] = useState([]);
@@ -13,19 +15,19 @@ function App() {
 
   const fetchTasks = async () => {
     try {
-      const res = await axios.get("/tasks");
+      const res = await axios.get(`${API_URL}/tasks`);
       setTasks(res.data);
     } catch (err) { console.error(err); }
   };
 
   const addTask = async () => {
     if (!name) return alert("Task name required");
-    await axios.post("/tasks", { name, status, accuracy });
+    await axios.post(`${API_URL}/tasks`, { name, status, accuracy });
     setName(""); setAccuracy(0); setStatus("Pending");
   };
 
   const deleteTask = async (id) => {
-    await axios.delete(`/tasks/${id}`);
+    await axios.delete(`${API_URL}/tasks/${id}`);
   };
 
   useEffect(() => {

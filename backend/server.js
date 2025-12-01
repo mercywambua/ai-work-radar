@@ -27,3 +27,40 @@ app.use(express.static(path.join(__dirname,'../frontend/build')));
 app.get('*',(req,res)=>{res.sendFile(path.join(__dirname,'../frontend/build','index.html'));});
 
 server.listen(PORT,()=>console.log(`Server running on port ${PORT}`));
+// --- AUTO-ADDED SCANNER LOOP ---
+
+async function scanForWork() {
+    console.log("👀 Scanning for new tasks...");
+    const randomChance = Math.random();
+    
+    if (randomChance > 0.7) { 
+        const newTask = { name: "Training AI Model - Python", status: "New", accuracy: 0.0 };
+        db.run(`INSERT INTO tasks (name, status, accuracy) VALUES (?,?,?)`, 
+            [newTask.name, newTask.status, newTask.accuracy], 
+            function(err) {
+                if (err) return console.error(err.message);
+                console.log(`🚨 ALERT: New Task Found! ID: ${this.lastID}`);
+                io.emit("updateTasks"); 
+            }
+        );
+    } else {
+        console.log("...No new tasks found.");
+    }
+}
+
+setInterval(scanForWork, 10000);
+// --- NEW: Allow External Bot to Add Tasks ---
+app.post('/api/add-task', (req, res) => {
+    const { name, status, accuracy } = req.body;
+    console.log(`🤖 Bot is adding a task: ${name}`);
+    
+    // Insert into Database
+    const sql = `INSERT INTO tasks (name, status, accuracy) VALUES (?,?,?)`;
+    db.run(sql, [name, status, accuracy], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        
+        // Update the live dashboard immediately
+        io.emit("updateTasks"); 
+        res.json({ message: "Task added successfully!", id: this.lastID });
+    });
+});

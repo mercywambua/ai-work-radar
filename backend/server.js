@@ -1,66 +1,90 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const http = require('http');                // <--- NEW: Required for WebSockets
+const { Server } = require("socket.io");     // <--- NEW: Required for WebSockets
 const cors = require('cors');
-const path = require('path');
-const http = require('http');
-const { Server } = require("socket.io");
+const sqlite3 = require('sqlite3').verbose();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const port = process.env.PORT || 10000;
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 
-const server = http.createServer(app);
-const io = new Server(server,{cors:{origin:"*"}});
-
-const db = new sqlite3.Database('./aiRadar.db',(err)=>{if(err) console.error(err.message); else console.log('Connected to DB.');});
-
-db.run(`CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,status TEXT,accuracy REAL)`);
-
-app.get('/tasks',(req,res)=>{ db.all('SELECT * FROM tasks',[],(err,rows)=>err?res.status(500).send(err.message):res.json(rows));});
-app.post('/tasks',(req,res)=>{ const {name,status,accuracy}=req.body; db.run(`INSERT INTO tasks (name,status,accuracy) VALUES (?,?,?)`,[name,status,accuracy],function(err){if(err)return res.status(500).send(err.message); io.emit("updateTasks"); res.json({id:this.lastID});});});
-app.put('/tasks/:id',(req,res)=>{ const {id}=req.params; const {name,status,accuracy}=req.body; db.run(`UPDATE tasks SET name=?, status=?, accuracy=? WHERE id=?`,[name,status,accuracy,id],function(err){if(err)return res.status(500).send(err.message); io.emit("updateTasks"); res.json({updated:this.changes});});});
-app.delete('/tasks/:id',(req,res)=>{ const {id}=req.params; db.run(`DELETE FROM tasks WHERE id=?`,[id],function(err){if(err)return res.status(500).send(err.message); io.emit("updateTasks"); res.json({deleted:this.changes});});});
-
-app.use(express.static(path.join(__dirname,'../frontend/build')));
-app.get('*',(req,res)=>{res.sendFile(path.join(__dirname,'../frontend/build','index.html'));});
-
-server.listen(PORT,()=>console.log(`Server running on port ${PORT}`));
-// --- AUTO-ADDED SCANNER LOOP ---
-
-async function scanForWork() {
-    console.log("👀 Scanning for new tasks...");
-    const randomChance = Math.random();
-    
-    if (randomChance > 0.7) { 
-        const newTask = { name: "Training AI Model - Python", status: "New", accuracy: 0.0 };
-        db.run(`INSERT INTO tasks (name, status, accuracy) VALUES (?,?,?)`, 
-            [newTask.name, newTask.status, newTask.accuracy], 
-            function(err) {
-                if (err) return console.error(err.message);
-                console.log(`🚨 ALERT: New Task Found! ID: ${this.lastID}`);
-                io.emit("updateTasks"); 
-            }
-        );
+// Database Connection
+// (Note: If your database file has a different name, update './database.db' below)
+const db = new sqlite3.Database('./database.db', (err) => {
+    if (err) {
+        console.error("Database error:", err.message);
     } else {
-        console.log("...No new tasks found.");
+        console.log('Connected to the SQLite database.');
+        // Create table if it doesn't exist
+        db.run(`CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            status TEXT,
+            accuracy INTEGER
+        )`);
     }
+});
+
+// --- THE FIX: Wrap Express in an HTTP Server ---
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: "*",  // Allow your frontend to connect from anywhere
+        methods: ["GET", "POST"]
+    }
+});
+
+// Global variable to track the last task ID
+let lastID = 0;
+
+// 1. Worker Function: Scan for new tasks in the database
+function scanForWork() {
+    db.get("SELECT MAX(id) as maxID FROM tasks", [], (err, row) => {
+        if (err) return console.error(err.message);
+        
+        const currentMax = row ? row.maxID : 0;
+
+        if (currentMax > lastID) {
+            console.log(`🚨 ALERT: New Task Found! ID: ${currentMax}`);
+            lastID = currentMax;
+            io.emit("updateTasks"); // Notify Frontend
+        } else {
+            // console.log("...No new tasks found."); // Uncomment to debug
+        }
+    });
 }
 
-setInterval(scanForWork, 10000);
-// --- NEW: Allow External Bot to Add Tasks ---
+// Run the scanner every 5 seconds
+setInterval(scanForWork, 5000);
+
+
+// 2. API Route: Allow External Bot to Add Tasks
 app.post('/api/add-task', (req, res) => {
     const { name, status, accuracy } = req.body;
     console.log(`🤖 Bot is adding a task: ${name}`);
-    
-    // Insert into Database
+
     const sql = `INSERT INTO tasks (name, status, accuracy) VALUES (?,?,?)`;
     db.run(sql, [name, status, accuracy], function(err) {
         if (err) return res.status(500).json({ error: err.message });
-        
+
         // Update the live dashboard immediately
-        io.emit("updateTasks"); 
+        io.emit("updateTasks");
         res.json({ message: "Task added successfully!", id: this.lastID });
     });
+});
+
+// 3. API Route: Get all tasks (For the frontend to load initially)
+app.get('/api/tasks', (req, res) => {
+    db.all("SELECT * FROM tasks ORDER BY id DESC", [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// --- IMPORTANT: Listen using 'server', not 'app' ---
+server.listen(port, () => {
+    console.log(`Server running on port ${port}`);
 });
